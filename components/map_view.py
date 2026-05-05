@@ -83,21 +83,28 @@ html,body { height:100%; overflow:hidden; background:#f1f5f0; }
   box-shadow:0 3px 14px rgba(22,163,74,.35);
 }
 
-/* 정보 패널 (hover 시 표시) */
+/* 정보 패널 (클릭 시 표시) */
 #panel {
-  position:absolute; bottom:20px; right:14px; z-index:1000;
-  background:rgba(255,255,255,0.95); backdrop-filter:blur(14px);
-  color:#1e293b; border-radius:16px; padding:18px 22px;
+  position:absolute; z-index:1000;
+  background:rgba(255,255,255,0.97); backdrop-filter:blur(14px);
+  color:#1e293b; border-radius:16px; padding:16px 20px;
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   font-size:13px; min-width:195px; display:none;
   border:1px solid rgba(0,0,0,.07);
-  box-shadow:0 8px 32px rgba(0,0,0,.13);
+  box-shadow:0 8px 32px rgba(0,0,0,.15);
+  pointer-events:auto;
 }
-#panel .pname {
-  font-size:17px; font-weight:700; color:#0f172a;
+.pheader {
+  display:flex; justify-content:space-between; align-items:center;
   border-bottom:1px solid rgba(0,0,0,.07);
-  padding-bottom:11px; margin-bottom:11px;
+  padding-bottom:10px; margin-bottom:10px;
 }
+.pname { font-size:16px; font-weight:700; color:#0f172a; }
+.pclose {
+  background:none; border:none; cursor:pointer;
+  color:#94a3b8; font-size:18px; line-height:1; padding:0;
+}
+.pclose:hover { color:#475569; }
 .prow { display:flex; justify-content:space-between; gap:22px; margin:6px 0; }
 .plabel { color:#94a3b8; }
 .pval   { font-weight:600; }
@@ -197,16 +204,20 @@ function renderLayer() {
     onEachFeature: (f, lyr) => {
       const n = f.properties.name;
       lyr.on({
-        mouseover: e => {
-          e.target.setStyle({weight:2.5, color:'rgba(255,255,255,.65)', fillOpacity:.95});
+        click: e => {
+          L.DomEvent.stopPropagation(e);
           const g  = DATA.green[n];
           const cs = DATA.cong[n];
           const cl = DATA.cong_label[n];
           const ns = DATA.noise[n];
           const panel = document.getElementById('panel');
+
           panel.style.display = 'block';
           panel.innerHTML = `
-            <div class="pname">${n}</div>
+            <div class="pheader">
+              <span class="pname">${n}</span>
+              <button class="pclose" onclick="document.getElementById('panel').style.display='none'">×</button>
+            </div>
             <div class="prow">
               <span class="plabel">🌿 녹지율</span>
               <span class="pval" style="color:#16a34a">${g != null ? g.toFixed(2)+'%' : '-'}</span>
@@ -216,19 +227,37 @@ function renderLayer() {
               <span class="pval" style="color:#ea580c">${cl && cl !== 'None' ? cl : '-'}${cs != null ? ` <span style="color:#94a3b8;font-size:11px">(${cs.toFixed(1)})</span>` : ''}</span>
             </div>
             <div class="prow">
-              <span class="plabel">🔊 소음</span>
+              <span class="plabel">🔊 소음도</span>
               <span class="pval" style="color:#f87171">${ns != null ? ns.toFixed(1)+' dB' : '-'}</span>
             </div>
           `;
-        },
-        mouseout: e => {
-          gLayer.resetStyle(e.target);
-          document.getElementById('panel').style.display = 'none';
+
+          const cp  = e.containerPoint;
+          const mEl = document.getElementById('map');
+          const mW  = mEl.offsetWidth;
+          const mH  = mEl.offsetHeight;
+          const pW  = panel.offsetWidth  || 210;
+          const pH  = panel.offsetHeight || 160;
+          const off = 14;
+
+          let left = cp.x + off;
+          let top  = cp.y + off;
+          if (left + pW > mW - 10) left = cp.x - pW - off;
+          if (top  + pH > mH - 10) top  = cp.y - pH - off;
+          left = Math.max(10, left);
+          top  = Math.max(10, top);
+
+          panel.style.left   = left + 'px';
+          panel.style.top    = top  + 'px';
+          panel.style.right  = 'auto';
+          panel.style.bottom = 'auto';
         },
       });
     },
   }).addTo(map);
 }
+
+map.on('click', () => { document.getElementById('panel').style.display = 'none'; });
 
 updateLegend();
 renderLayer();
