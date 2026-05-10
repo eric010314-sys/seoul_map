@@ -13,7 +13,7 @@ def render_kpi_row(
     r1c1, r1c2 = st.columns(2)
     r2c1, r2c2 = st.columns(2)
 
-    if overlay == "녹지율":
+    if overlay == "공원접근비율":
         total = green_df["green_area"].sum()
         top   = green_df.loc[green_df["green_area"].idxmax()]
         bot   = green_df.loc[green_df["green_area"].idxmin()]
@@ -80,7 +80,7 @@ def render_ranking_table(
     green_df: pd.DataFrame,
     overlay: str,
 ):
-    sort_col = {"녹지율": "green_area", "유동인구": "population", "소음": "noise_db"}[overlay]
+    sort_col = {"공원접근비율": "green_area", "유동인구": "population", "소음": "noise_db"}[overlay]
 
     merged = green_df[["district", "green_area"]].merge(
         noise_df[["district", "noise_db"]], on="district", how="outer"

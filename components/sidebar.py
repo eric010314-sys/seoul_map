@@ -10,7 +10,7 @@ def render_sidebar() -> dict:
         "오버레이 선택",
         options=OVERLAYS,
         index=0,
-        format_func=lambda x: {"녹지율": "🌿 녹지율", "유동인구": "👥 유동인구", "소음": "🔊 소음"}[x],
+        format_func=lambda x: {"공원접근비율": "🌿 공원접근비율", "유동인구": "👥 유동인구", "소음": "🔊 소음"}[x],
     )
 
     selected_district = st.sidebar.selectbox(
@@ -23,7 +23,7 @@ def render_sidebar() -> dict:
 
     st.sidebar.markdown("---")
     st.sidebar.caption("데이터 출처")
-    st.sidebar.caption("🌿 녹지율 — 정적 CSV")
+    st.sidebar.caption("🌿 공원접근비율 — 정적 CSV")
     st.sidebar.caption("👥 유동인구 — 서울 OA-21778")
     st.sidebar.caption("🔊 소음 — 서울 OA-15473")
 

@@ -137,7 +137,7 @@ const PAL = {
 };
 const CONG_LABEL = {1:'여유', 2:'보통', 3:'약간붐빔', 4:'붐빔'};
 const META = {
-  green : { title:'녹지율 (%)',  fmt: v => v.toFixed(2)+'%' },
+  green : { title:'공원접근비율 (%)',  fmt: v => v.toFixed(2)+'%' },
   cong  : { title:'혼잡도',      fmt: v => CONG_LABEL[Math.round(v)] || v.toFixed(1) },
   noise : { title:'소음 (dB)',   fmt: v => v.toFixed(1)+' dB' },
 };
@@ -219,7 +219,7 @@ function renderLayer() {
               <button class="pclose" onclick="document.getElementById('panel').style.display='none'">×</button>
             </div>
             <div class="prow">
-              <span class="plabel">🌿 녹지율</span>
+              <span class="plabel">🌿 공원접근비율</span>
               <span class="pval" style="color:#16a34a">${g != null ? g.toFixed(2)+'%' : '-'}</span>
             </div>
             <div class="prow">
@@ -275,7 +275,7 @@ renderLayer();
 <div style="position:relative">
   <div id="map"></div>
   <div class="controls">
-    <button class="ctrl active" id="b-green" onclick="setOv('green')">🌿 녹지율</button>
+    <button class="ctrl active" id="b-green" onclick="setOv('green')">🌿 공원접근비율</button>
     <button class="ctrl"        id="b-cong"  onclick="setOv('cong')">🚶 혼잡도</button>
     <button class="ctrl"        id="b-noise" onclick="setOv('noise')">🔊 소음도</button>
   </div>
