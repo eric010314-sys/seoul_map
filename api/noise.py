@@ -37,7 +37,7 @@ GU_TO_DONG = {
 BATCH = 1000
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_noise_data() -> pd.DataFrame:
     """
     S-DoT API 1회 호출 후 sdot.py와 동일하게 자치구별 독립 필터링.
