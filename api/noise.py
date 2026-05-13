@@ -1,37 +1,38 @@
 import requests
+import xml.etree.ElementTree as ET
 import pandas as pd
 import streamlit as st
 from config import SEOUL_API_KEY
 
-SDOT_URL = "http://openapi.seoul.go.kr:8088/{key}/json/sDoTEnv/{start}/{end}/"
+SDOT_URL = "http://openapi.seoul.go.kr:8088/{key}/xml/sDoTEnv/{start}/{end}/"
 
-# sdot.py(Deno 엣지 함수)와 동일한 GU_TO_DONG 매핑
-GU_TO_DONG = {
-    "종로구": ["Samcheong","Gahoe","Ihwa","Changsin","Pyeongchang","Buam","Hyehwa","Muak","Gyonam","CheongwoonHyoja","Sungin","Sajik"],
-    "중구":   ["Myeong","Gwanghui","Sindang","Hoehyeon","Sogong","Pil","Jangchung","Eulji-ro","Dasan","Jungnim"],
-    "용산구": ["Itaewon","Bogwang","Cheongpa","Hyochang","Huam","Ichon","Seobinggo","Wonhyo-ro","Yongmun","Hannam","Hangang-ro"],
-    "성동구": ["Seongsu","Majang","Sageun","Yongdap","Songjeong","Geumho","Eungbong","Haengdang","Wangsimni"],
-    "광진구": ["Junggok","Gwangjang","Gunja","Guui","Jayang","Hwayang"],
-    "동대문구": ["Imun","Cheongnyangni","Dapsip-ri","Jeonnong","Jangan","Hwigyeong","Yongshin"],
-    "중랑구": ["Sinnae","Junghwa","Myeonmok","Sangbong","Muk","Mangu"],
-    "성북구": ["Dongseon","Seongbuk","Jongam","Donam","Samseon","Bomun","Jeongneung","Gileum","Seokgwan","Anam","Wolgok"],
-    "강북구": ["Beon","Suyu","Insu","Songcheon","Mia","Samyang","Ui","Samgaksan"],
-    "도봉구": ["Chang","Banghak","Ssangmun","Dobong"],
-    "노원구": ["Wolgye","Sanggye","Junggye","Hagye","Gongneung"],
-    "은평구": ["Nokbeon","Eungam","Bulgwang","Gusan","Daejo","Galhyeon","Jingwan","Susaek"],
-    "서대문구": ["Hongje","Hongeun","Bukgajwa","Cheonyeon","Yeonhui","Bukahyeon","Sinchon","Chunghyeon"],
-    "마포구": ["Mangwon","Sangam","Seogyo","Seongsan","Yonggang","Sinsu","Sogang","Yeonnam","Ahyeon","Hapjeong","Dohwa","Gongdeok","Daeheung","Yeomni"],
-    "양천구": ["Sinjeong","Mok","Sinwol"],
-    "강서구": ["Gonghang","Banghwa","Gayang","Deungchon","Balsan","Yeomchang","Hwagok","Ujangsan"],
-    "구로구": ["Gu-ro","Gaebong","Oryu","Sugung","Hang","Gocheok","Sindorim"],
-    "금천구": ["Gasan","Doksan","Siheung"],
-    "영등포구": ["Dorim","Dangsan","Yeouido","Daerim","Munllae","Yangpyeong","Sin-gil","Yeongdeungpo"],
-    "동작구": ["Heukseok","Sang-do","Sadang","Sindaebang","Daebang","Noryangjin","Boramae"],
-    "관악구": ["Nakseongdae","Cheongnyong","Inheon","Namhyeon","Seorim","Sinllim","Nangok","Jungang","Haengun","Seowon","Euncheon","Daehak","Jowon","Cheongnim","Miseong","Nanhyang","Seonghyeon"],
-    "서초구": ["Bangbae","Banpo","Seocho","Yangjae","Jamwon","Naegok"],
-    "강남구": ["Sinsa","Apgujeong","Yeoksam","Daechi","Gaepo","Nonhyeon","Cheongdam","Samseong","Dogok","Ilwon","Suseo","Segok"],
-    "송파구": ["Jangji","Garak","Songpa","Jamsil","Ogeum","Geoyeo","Seokchon","Bangi","Munjeong","Pungnap","Wirye","Oryun"],
-    "강동구": ["Dunchon","Cheonho","Seongnae","Amsa","Sangil","Gil","Godeok","Gangil"],
+# XML AUTONOMOUS_DISTRICT 필드는 구 단위 영문명(예: "Jung-gu") 반환
+DISTRICT_MAP = {
+    "Gangnam-gu":      "강남구",
+    "Gangdong-gu":     "강동구",
+    "Gangbuk-gu":      "강북구",
+    "Gangseo-gu":      "강서구",
+    "Gwanak-gu":       "관악구",
+    "Gwangjin-gu":     "광진구",
+    "Guro-gu":         "구로구",
+    "Geumcheon-gu":    "금천구",
+    "Nowon-gu":        "노원구",
+    "Dobong-gu":       "도봉구",
+    "Dongdaemun-gu":   "동대문구",
+    "Dongjak-gu":      "동작구",
+    "Mapo-gu":         "마포구",
+    "Seodaemun-gu":    "서대문구",
+    "Seocho-gu":       "서초구",
+    "Seongdong-gu":    "성동구",
+    "Seongbuk-gu":     "성북구",
+    "Songpa-gu":       "송파구",
+    "Yangcheon-gu":    "양천구",
+    "Yeongdeungpo-gu": "영등포구",
+    "Yongsan-gu":      "용산구",
+    "Eunpyeong-gu":    "은평구",
+    "Jongno-gu":       "종로구",
+    "Jung-gu":         "중구",
+    "Jungnang-gu":     "중랑구",
 }
 
 BATCH = 1000
@@ -39,55 +40,33 @@ BATCH = 1000
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_noise_data() -> pd.DataFrame:
-    """
-    S-DoT API 1회 호출 후 sdot.py와 동일하게 자치구별 독립 필터링.
-    각 자치구는 자신의 dong 목록에 매칭되는 행만 사용해 avg 계산.
-    """
     try:
         url = SDOT_URL.format(key=SEOUL_API_KEY, start=1, end=BATCH)
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
 
-        raw = _parse_json(resp.json())
-        if not raw:
+        rows = _parse_xml(resp.content)
+        if not rows:
             return _fallback_noise_data()
 
-        df = pd.DataFrame(raw)
+        df = pd.DataFrame(rows)
         df["avg_noise"] = pd.to_numeric(df["avg_noise"], errors="coerce")
         df["data_no"]   = pd.to_numeric(df["data_no"],   errors="coerce")
-        # sdot.py JS와 동일: NaN/null만 제거, 0은 허용
         df = df.dropna(subset=["avg_noise"])
 
-        # sdot.py와 동일: DATA_NO=2(보정값) 우선, 없으면 DATA_NO=1(원시값)
+        # DATA_NO=2(보정값) 우선, 없으면 DATA_NO=1(원시값)
         corrected = df[df["data_no"] == 2]
         df = corrected if not corrected.empty else df[df["data_no"] == 1]
 
-        # sdot.py를 25번 호출하는 것과 동일하게:
-        # 자치구별로 독립적으로 dong 이름 포함 여부로 행을 필터링 (case-sensitive, JS와 동일)
-        records = []
-        for gu, dongs in GU_TO_DONG.items():
-            mask = df["autonomous_district"].apply(
-                lambda ad: any(d in ad for d in dongs)  # case-sensitive (JS .includes() 동일)
-            )
-            district_rows = df[mask]
-            # sdot.py와 동일: 매칭 행이 없으면 전체 행으로 fallback
-            noise_rows = district_rows if not district_rows.empty else df
-            noise_rows = noise_rows.dropna(subset=["avg_noise"])
-            if noise_rows.empty:
-                continue
-            records.append({
-                "district":    gu,
-                "noise_db":    round(noise_rows["avg_noise"].mean(), 1),
-                "measured_at": noise_rows["sensing_time"].max(),
-            })
-
-        if not records:
-            return _fallback_noise_data()
-
-        result = pd.DataFrame(records)
+        result = (
+            df.groupby("district")
+            .agg(noise_db=("avg_noise", "mean"), measured_at=("sensing_time", "max"))
+            .reset_index()
+        )
+        result["noise_db"]    = result["noise_db"].round(1)
         result["measured_at"] = result["measured_at"].str.replace("_", " ").str[:16]
 
-        # 2.py와 동일하게 μ±σ 기반 4단계 분류
+        # μ±σ 기반 4단계 분류 (2.py와 동일)
         vals = result["noise_db"]
         mean = vals.mean()
         std  = vals.std(ddof=0)
@@ -102,16 +81,19 @@ def fetch_noise_data() -> pd.DataFrame:
         return _fallback_noise_data()
 
 
-def _parse_json(data: dict) -> list[dict]:
-    """sdot.py JS와 동일하게 JSON 응답에서 원시 행 반환."""
-    rows_raw = data.get("sDoTEnv", {}).get("row", [])
+def _parse_xml(content: bytes) -> list[dict]:
+    root = ET.fromstring(content)
     rows = []
-    for r in rows_raw:
+    for row in root.findall("row"):
+        eng      = row.findtext("AUTONOMOUS_DISTRICT", "").strip()
+        district = DISTRICT_MAP.get(eng)
+        if not district:
+            continue
         rows.append({
-            "autonomous_district": str(r.get("AUTONOMOUS_DISTRICT", "") or "").strip(),
-            "avg_noise":           r.get("AVG_NOISE"),
-            "data_no":             r.get("DATA_NO"),
-            "sensing_time":        str(r.get("SENSING_TIME", "") or ""),
+            "district":     district,
+            "avg_noise":    row.findtext("AVG_NOISE", ""),
+            "data_no":      row.findtext("DATA_NO", ""),
+            "sensing_time": row.findtext("SENSING_TIME", ""),
         })
     return rows
 
