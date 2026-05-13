@@ -57,7 +57,12 @@ def fetch_noise_data() -> pd.DataFrame:
 
         df = pd.DataFrame(rows)
         df["avg_noise"] = pd.to_numeric(df["avg_noise"], errors="coerce")
-        df = df[df["avg_noise"] > 0].dropna(subset=["avg_noise"])  # 빈값·0 제거
+        df["data_no"]   = pd.to_numeric(df["data_no"],   errors="coerce")
+        df = df[df["avg_noise"] > 0].dropna(subset=["avg_noise"])
+
+        # DATA_NO=2(보정값) 우선, 없으면 DATA_NO=1(원시값) 사용
+        corrected = df[df["data_no"] == 2]
+        df = corrected if not corrected.empty else df[df["data_no"] == 1]
 
         # 자치구별 평균 소음도 집계
         result = (
@@ -86,6 +91,7 @@ def _parse_xml(content: bytes) -> list[dict]:
         rows.append({
             "district":     district,
             "avg_noise":    row.findtext("AVG_NOISE", ""),
+            "data_no":      row.findtext("DATA_NO", ""),
             "sensing_time": row.findtext("SENSING_TIME", ""),
         })
     return rows
