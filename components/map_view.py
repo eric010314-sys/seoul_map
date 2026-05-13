@@ -24,28 +24,32 @@ def build_html_map(
 ) -> str:
     geo = load_geojson()
 
-    green_data      = {r["district"]: round(float(r["green_ratio"]), 2)
-                       for _, r in green_df.iterrows() if pd.notna(r["green_ratio"])}
-    noise_data      = {r["district"]: round(float(r["noise_db"]), 1)
-                       for _, r in noise_df.iterrows() if pd.notna(r["noise_db"])}
-    cong_score_data = {r["district"]: float(r["congestion_score"])
-                       for _, r in cong_df.iterrows() if pd.notna(r["congestion_score"])}
-    cong_label_data = {r["district"]: str(r["congestion_label"])
-                       for _, r in cong_df.iterrows()}
+    green_data       = {r["district"]: round(float(r["green_ratio"]), 2)
+                        for _, r in green_df.iterrows() if pd.notna(r["green_ratio"])}
+    noise_data       = {r["district"]: round(float(r["noise_db"]), 1)
+                        for _, r in noise_df.iterrows() if pd.notna(r["noise_db"])}
+    noise_label_data = {r["district"]: str(r["noise_label"])
+                        for _, r in noise_df.iterrows() if "noise_label" in noise_df.columns}
+    cong_score_data  = {r["district"]: float(r["congestion_score"])
+                        for _, r in cong_df.iterrows() if pd.notna(r["congestion_score"])}
+    cong_label_data  = {r["district"]: str(r["congestion_label"])
+                        for _, r in cong_df.iterrows()}
 
-    geo_js        = json.dumps(geo,             ensure_ascii=False)
-    green_js      = json.dumps(green_data,      ensure_ascii=False)
-    noise_js      = json.dumps(noise_data,      ensure_ascii=False)
-    cong_score_js = json.dumps(cong_score_data, ensure_ascii=False)
-    cong_label_js = json.dumps(cong_label_data, ensure_ascii=False)
+    geo_js           = json.dumps(geo,              ensure_ascii=False)
+    green_js         = json.dumps(green_data,       ensure_ascii=False)
+    noise_js         = json.dumps(noise_data,       ensure_ascii=False)
+    noise_label_js   = json.dumps(noise_label_data, ensure_ascii=False)
+    cong_score_js    = json.dumps(cong_score_data,  ensure_ascii=False)
+    cong_label_js    = json.dumps(cong_label_data,  ensure_ascii=False)
 
     data_block = f"""
 const GEO  = {geo_js};
 const DATA = {{
-  green      : {green_js},
-  cong       : {cong_score_js},
-  cong_label : {cong_label_js},
-  noise      : {noise_js},
+  green       : {green_js},
+  cong        : {cong_score_js},
+  cong_label  : {cong_label_js},
+  noise       : {noise_js},
+  noise_label : {noise_label_js},
 }};
 const MAP_H = {height};
 """
@@ -133,9 +137,10 @@ html,body { height:100%; overflow:hidden; background:#f1f5f0; }
 const PAL = {
   green : ['#e8ede6','#c0cebc','#96ae90','#6d8e65','#46663f','#2b3b2b'],
   cong  : ['#e6eaed','#bcc5cd','#8ea2b0','#607f94','#3d5f76','#2b3b4b'],
-  noise : ['#ede8e8','#cebbbb','#ae9090','#8e6565','#663d3d','#3b2b2b'],
 };
 const CONG_LABEL = {1:'여유', 2:'보통', 3:'약간붐빔', 4:'붐빔'};
+// 2.py(Deno 엣지 함수)와 동일한 4단계 이산 색상
+const NOISE_COLORS = {'조용':'#4A6741','보통':'#7AAF6E','활발함':'#F5C842','시끄러움':'#E05252'};
 const META = {
   green : { title:'공원접근비율 (%)',  fmt: v => v.toFixed(2)+'%' },
   cong  : { title:'혼잡도',      fmt: v => CONG_LABEL[Math.round(v)] || v.toFixed(1) },
@@ -165,7 +170,11 @@ function lerpColor(pal, t) {
   const [r1,g1,b1] = h2rgb(pal[i]), [r2,g2,b2] = h2rgb(pal[i+1]);
   return `rgb(${Math.round(r1+(r2-r1)*f)},${Math.round(g1+(g2-g1)*f)},${Math.round(b1+(b2-b1)*f)})`;
 }
-function getColor(val) {
+function getColor(val, name) {
+  if (ov === 'noise') {
+    const label = DATA.noise_label[name];
+    return NOISE_COLORS[label] || '#d1d5db';
+  }
   const vals = Object.values(getOvData(ov)).filter(v => v != null);
   const min = Math.min(...vals), max = Math.max(...vals);
   if (val == null) return '#d1d5db';
@@ -182,9 +191,17 @@ function setOv(key) {
 
 
 function updateLegend() {
+  document.getElementById('ltitle').textContent = META[ov].title;
+  if (ov === 'noise') {
+    const cols = Object.values(NOISE_COLORS);
+    document.getElementById('lbar').style.background =
+      `linear-gradient(to right, ${cols.join(',')})`;
+    document.getElementById('lmin').textContent = '조용';
+    document.getElementById('lmax').textContent = '시끄러움';
+    return;
+  }
   const vals = Object.values(getOvData(ov)).filter(v => v != null);
   const min = Math.min(...vals), max = Math.max(...vals);
-  document.getElementById('ltitle').textContent = META[ov].title;
   document.getElementById('lbar').style.background =
     `linear-gradient(to right, ${PAL[ov].join(',')})`;
   document.getElementById('lmin').textContent = META[ov].fmt(min);
@@ -196,7 +213,7 @@ function renderLayer() {
   gLayer = L.geoJSON(GEO, {
     renderer: renderer,
     style: f => ({
-      fillColor  : getColor(getOvData(ov)[f.properties.name]),
+      fillColor  : getColor(getOvData(ov)[f.properties.name], f.properties.name),
       weight     : 1.5,
       color      : 'rgba(255,255,255,.7)',
       fillOpacity: .75,

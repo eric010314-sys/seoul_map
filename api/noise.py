@@ -77,6 +77,17 @@ def fetch_noise_data() -> pd.DataFrame:
         )
         result["noise_db"] = result["noise_db"].round(1)
         result["measured_at"] = result["measured_at"].str.replace("_", " ").str[:16]
+
+        # 2.py와 동일하게 μ±σ 기반 4단계 분류
+        vals = result["noise_db"]
+        mean = vals.mean()
+        std  = vals.std(ddof=0)  # population std (JS variance 계산과 동일)
+        b1   = round(mean - std, 1)
+        b2   = round(mean,       1)
+        b3   = round(mean + std, 1)
+        result["noise_label"] = vals.apply(
+            lambda db: "조용" if db < b1 else "보통" if db < b2 else "활발함" if db < b3 else "시끄러움"
+        )
         return result
 
     except Exception as e:
@@ -113,8 +124,17 @@ def _resolve_district(autonomous_district: str) -> str | None:
 def _fallback_noise_data() -> pd.DataFrame:
     import random
     from config import DISTRICTS
+    noise_db = [round(random.uniform(42, 72), 1) for _ in DISTRICTS]
+    mean = sum(noise_db) / len(noise_db)
+    std  = (sum((v - mean) ** 2 for v in noise_db) / len(noise_db)) ** 0.5
+    b1, b2, b3 = mean - std, mean, mean + std
+    labels = [
+        "조용" if v < b1 else "보통" if v < b2 else "활발함" if v < b3 else "시끄러움"
+        for v in noise_db
+    ]
     return pd.DataFrame({
         "district":    DISTRICTS,
-        "noise_db":    [round(random.uniform(42, 72), 1) for _ in DISTRICTS],
+        "noise_db":    noise_db,
+        "noise_label": labels,
         "measured_at": ["샘플 데이터"] * len(DISTRICTS),
     })
