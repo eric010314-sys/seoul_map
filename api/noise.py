@@ -56,27 +56,30 @@ def fetch_noise_data() -> pd.DataFrame:
         df = pd.DataFrame(raw)
         df["avg_noise"] = pd.to_numeric(df["avg_noise"], errors="coerce")
         df["data_no"]   = pd.to_numeric(df["data_no"],   errors="coerce")
-        df = df[df["avg_noise"] > 0].dropna(subset=["avg_noise"])
+        # sdot.py JS와 동일: NaN/null만 제거, 0은 허용
+        df = df.dropna(subset=["avg_noise"])
 
         # sdot.py와 동일: DATA_NO=2(보정값) 우선, 없으면 DATA_NO=1(원시값)
         corrected = df[df["data_no"] == 2]
         df = corrected if not corrected.empty else df[df["data_no"] == 1]
 
         # sdot.py를 25번 호출하는 것과 동일하게:
-        # 자치구별로 독립적으로 dong 이름 포함 여부로 행을 필터링
+        # 자치구별로 독립적으로 dong 이름 포함 여부로 행을 필터링 (case-sensitive, JS와 동일)
         records = []
         for gu, dongs in GU_TO_DONG.items():
-            dongs_lower = [d.lower() for d in dongs]
             mask = df["autonomous_district"].apply(
-                lambda ad: any(d in ad.lower() for d in dongs_lower)
+                lambda ad: any(d in ad for d in dongs)  # case-sensitive (JS .includes() 동일)
             )
             district_rows = df[mask]
-            if district_rows.empty:
+            # sdot.py와 동일: 매칭 행이 없으면 전체 행으로 fallback
+            noise_rows = district_rows if not district_rows.empty else df
+            noise_rows = noise_rows.dropna(subset=["avg_noise"])
+            if noise_rows.empty:
                 continue
             records.append({
                 "district":    gu,
-                "noise_db":    round(district_rows["avg_noise"].mean(), 1),
-                "measured_at": district_rows["sensing_time"].max(),
+                "noise_db":    round(noise_rows["avg_noise"].mean(), 1),
+                "measured_at": noise_rows["sensing_time"].max(),
             })
 
         if not records:
