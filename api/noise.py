@@ -1,10 +1,9 @@
 import requests
-import xml.etree.ElementTree as ET
 import pandas as pd
 import streamlit as st
 from config import SEOUL_API_KEY
 
-SDOT_URL = "http://openapi.seoul.go.kr:8088/{key}/xml/sDoTEnv/{start}/{end}/"
+SDOT_URL = "http://openapi.seoul.go.kr:8088/{key}/json/sDoTEnv/{start}/{end}/"
 
 # sdot.py(Deno 엣지 함수)와 동일한 GU_TO_DONG 매핑
 GU_TO_DONG = {
@@ -49,7 +48,7 @@ def fetch_noise_data() -> pd.DataFrame:
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
 
-        raw = _parse_xml(resp.content)
+        raw = _parse_json(resp.json())
         if not raw:
             return _fallback_noise_data()
 
@@ -103,19 +102,16 @@ def fetch_noise_data() -> pd.DataFrame:
         return _fallback_noise_data()
 
 
-def _parse_xml(content: bytes) -> list[dict]:
-    """district 귀속 없이 원시 행 반환. 자치구 할당은 fetch_noise_data에서 구별로 처리."""
-    root = ET.fromstring(content)
+def _parse_json(data: dict) -> list[dict]:
+    """sdot.py JS와 동일하게 JSON 응답에서 원시 행 반환."""
+    rows_raw = data.get("sDoTEnv", {}).get("row", [])
     rows = []
-    for row in root.findall("row"):
-        avg_noise = row.findtext("AVG_NOISE", "")
-        if not avg_noise:
-            continue
+    for r in rows_raw:
         rows.append({
-            "autonomous_district": row.findtext("AUTONOMOUS_DISTRICT", "").strip(),
-            "avg_noise":           avg_noise,
-            "data_no":             row.findtext("DATA_NO", ""),
-            "sensing_time":        row.findtext("SENSING_TIME", ""),
+            "autonomous_district": str(r.get("AUTONOMOUS_DISTRICT", "") or "").strip(),
+            "avg_noise":           r.get("AVG_NOISE"),
+            "data_no":             r.get("DATA_NO"),
+            "sensing_time":        str(r.get("SENSING_TIME", "") or ""),
         })
     return rows
 
