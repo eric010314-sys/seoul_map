@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import xml.etree.ElementTree as ET
 
 import pandas as pd
 import requests
@@ -8,7 +9,8 @@ import streamlit as st
 
 from config import DISTRICTS, SEOUL_API_KEY
 
-SDOT_URL = "http://openapi.seoul.go.kr:8088/{key}/json/sDoTEnv/1/1000/"
+SDOT_JSON_URL = "http://openapi.seoul.go.kr:8088/{key}/json/sDoTEnv/1/1000/"
+SDOT_XML_URL  = "http://openapi.seoul.go.kr:8088/{key}/xml/sDoTEnv/1/1000/"
 
 GU_TO_DONG = {
     "종로": ["Samcheong", "Gahoe", "Ihwa", "Changsin", "Pyeongchang", "Buam", "Hyehwa", "Muak", "Gyonam", "CheongwoonHyoja", "Sungin", "Sajik"],
@@ -66,12 +68,59 @@ def fetch_noise_data() -> pd.DataFrame:
 
 
 def _fetch_sdot_rows() -> list[dict]:
-    url = SDOT_URL.format(key=SEOUL_API_KEY)
+    # JSON 먼저 시도 (Lovable과 동일), 실패 시 XML 사용
+    try:
+        url = SDOT_JSON_URL.format(key=SEOUL_API_KEY)
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        rows = data.get("sDoTEnv", {}).get("row", [])
+        if rows and isinstance(rows, list):
+            return rows
+    except Exception:
+        pass
+
+    # XML fallback: AUTONOMOUS_DISTRICT가 구 단위 영문명(예: "Jung-gu")으로 반환됨
+    url = SDOT_XML_URL.format(key=SEOUL_API_KEY)
     resp = requests.get(url, timeout=15)
     resp.raise_for_status()
-    data = resp.json()
-    rows = data.get("sDoTEnv", {}).get("row", [])
-    return rows if isinstance(rows, list) else []
+    return _parse_xml_rows(resp.content)
+
+
+def _parse_xml_rows(content: bytes) -> list[dict]:
+    root = ET.fromstring(content)
+    # XML은 AUTONOMOUS_DISTRICT가 구 단위 영문명 → GU_TO_DONG 역방향 매핑으로 변환
+    eng_to_kor = {
+        "Gangnam-gu": "강남구", "Gangdong-gu": "강동구", "Gangbuk-gu": "강북구",
+        "Gangseo-gu": "강서구", "Gwanak-gu": "관악구", "Gwangjin-gu": "광진구",
+        "Guro-gu": "구로구", "Geumcheon-gu": "금천구", "Nowon-gu": "노원구",
+        "Dobong-gu": "도봉구", "Dongdaemun-gu": "동대문구", "Dongjak-gu": "동작구",
+        "Mapo-gu": "마포구", "Seodaemun-gu": "서대문구", "Seocho-gu": "서초구",
+        "Seongdong-gu": "성동구", "Seongbuk-gu": "성북구", "Songpa-gu": "송파구",
+        "Yangcheon-gu": "양천구", "Yeongdeungpo-gu": "영등포구", "Yongsan-gu": "용산구",
+        "Eunpyeong-gu": "은평구", "Jongno-gu": "종로구", "Jung-gu": "중구",
+        "Jungnang-gu": "중랑구",
+    }
+    rows = []
+    for row in root.findall("row"):
+        eng = row.findtext("AUTONOMOUS_DISTRICT", "").strip()
+        kor = eng_to_kor.get(eng)
+        if not kor:
+            continue
+        # XML 행을 JSON 행과 동일한 구조로 변환
+        # AUTONOMOUS_DISTRICT를 해당 구의 첫 번째 dong 이름으로 설정해 GU_TO_DONG 필터 통과
+        gu_key = kor.replace("구", "").strip()
+        dongs = GU_TO_DONG.get(gu_key, [])
+        ad = dongs[0] if dongs else kor
+        rows.append({
+            "AUTONOMOUS_DISTRICT": ad,
+            "AVG_NOISE": row.findtext("AVG_NOISE", ""),
+            "MAX_NOISE": row.findtext("MAX_NOISE", ""),
+            "MIN_NOISE": row.findtext("MIN_NOISE", ""),
+            "DATA_NO":   row.findtext("DATA_NO", ""),
+            "SENSING_TIME": row.findtext("SENSING_TIME", ""),
+        })
+    return rows
 
 
 def _prefer_corrected_rows(rows: list[dict]) -> list[dict]:
