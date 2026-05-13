@@ -7,7 +7,6 @@ from config import SEOUL_API_KEY
 SDOT_URL = "http://openapi.seoul.go.kr:8088/{key}/xml/sDoTEnv/{start}/{end}/"
 
 # sdot.py(Deno 엣지 함수)와 동일한 GU_TO_DONG 매핑
-# AUTONOMOUS_DISTRICT 필드는 행정동 영문명을 반환하므로 동 이름 기반으로 필터링
 GU_TO_DONG = {
     "종로구": ["Samcheong","Gahoe","Ihwa","Changsin","Pyeongchang","Buam","Hyehwa","Muak","Gyonam","CheongwoonHyoja","Sungin","Sajik"],
     "중구":   ["Myeong","Gwanghui","Sindang","Hoehyeon","Sogong","Pil","Jangchung","Eulji-ro","Dasan","Jungnim"],
@@ -36,55 +35,61 @@ GU_TO_DONG = {
     "강동구": ["Dunchon","Cheonho","Seongnae","Amsa","Sangil","Gil","Godeok","Gangil"],
 }
 
-# 빠른 역방향 조회: 동 이름(소문자) → 구
-_DONG_TO_GU: dict[str, str] = {
-    dong.lower(): gu
-    for gu, dongs in GU_TO_DONG.items()
-    for dong in dongs
-}
-
 BATCH = 1000
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_noise_data() -> pd.DataFrame:
     """
-    S-DoT 환경정보 API에서 최신 센서 데이터를 가져와
-    자치구별 평균 소음도(dB)를 반환.
+    S-DoT API 1회 호출 후 sdot.py와 동일하게 자치구별 독립 필터링.
+    각 자치구는 자신의 dong 목록에 매칭되는 행만 사용해 avg 계산.
     """
     try:
         url = SDOT_URL.format(key=SEOUL_API_KEY, start=1, end=BATCH)
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
 
-        rows = _parse_xml(resp.content)
-        if not rows:
+        raw = _parse_xml(resp.content)
+        if not raw:
             return _fallback_noise_data()
 
-        df = pd.DataFrame(rows)
+        df = pd.DataFrame(raw)
         df["avg_noise"] = pd.to_numeric(df["avg_noise"], errors="coerce")
         df["data_no"]   = pd.to_numeric(df["data_no"],   errors="coerce")
         df = df[df["avg_noise"] > 0].dropna(subset=["avg_noise"])
 
-        # DATA_NO=2(보정값) 우선, 없으면 DATA_NO=1(원시값) 사용
+        # sdot.py와 동일: DATA_NO=2(보정값) 우선, 없으면 DATA_NO=1(원시값)
         corrected = df[df["data_no"] == 2]
         df = corrected if not corrected.empty else df[df["data_no"] == 1]
 
-        result = (
-            df.groupby("district")
-            .agg(noise_db=("avg_noise", "mean"), measured_at=("sensing_time", "max"))
-            .reset_index()
-        )
-        result["noise_db"] = result["noise_db"].round(1)
+        # sdot.py를 25번 호출하는 것과 동일하게:
+        # 자치구별로 독립적으로 dong 이름 포함 여부로 행을 필터링
+        records = []
+        for gu, dongs in GU_TO_DONG.items():
+            dongs_lower = [d.lower() for d in dongs]
+            mask = df["autonomous_district"].apply(
+                lambda ad: any(d in ad.lower() for d in dongs_lower)
+            )
+            district_rows = df[mask]
+            if district_rows.empty:
+                continue
+            records.append({
+                "district":    gu,
+                "noise_db":    round(district_rows["avg_noise"].mean(), 1),
+                "measured_at": district_rows["sensing_time"].max(),
+            })
+
+        if not records:
+            return _fallback_noise_data()
+
+        result = pd.DataFrame(records)
         result["measured_at"] = result["measured_at"].str.replace("_", " ").str[:16]
 
         # 2.py와 동일하게 μ±σ 기반 4단계 분류
         vals = result["noise_db"]
         mean = vals.mean()
-        std  = vals.std(ddof=0)  # population std (JS variance 계산과 동일)
-        b1   = round(mean - std, 1)
-        b2   = round(mean,       1)
-        b3   = round(mean + std, 1)
+        std  = vals.std(ddof=0)
+        b1, b2, b3 = mean - std, mean, mean + std
         result["noise_label"] = vals.apply(
             lambda db: "조용" if db < b1 else "보통" if db < b2 else "활발함" if db < b3 else "시끄러움"
         )
@@ -96,29 +101,20 @@ def fetch_noise_data() -> pd.DataFrame:
 
 
 def _parse_xml(content: bytes) -> list[dict]:
+    """district 귀속 없이 원시 행 반환. 자치구 할당은 fetch_noise_data에서 구별로 처리."""
     root = ET.fromstring(content)
     rows = []
     for row in root.findall("row"):
-        ad = row.findtext("AUTONOMOUS_DISTRICT", "").strip()
-        # sdot.py와 동일하게 행정동 이름 포함 여부로 자치구 판별
-        district = _resolve_district(ad)
-        if not district:
+        avg_noise = row.findtext("AVG_NOISE", "")
+        if not avg_noise:
             continue
         rows.append({
-            "district":     district,
-            "avg_noise":    row.findtext("AVG_NOISE", ""),
-            "data_no":      row.findtext("DATA_NO", ""),
-            "sensing_time": row.findtext("SENSING_TIME", ""),
+            "autonomous_district": row.findtext("AUTONOMOUS_DISTRICT", "").strip(),
+            "avg_noise":           avg_noise,
+            "data_no":             row.findtext("DATA_NO", ""),
+            "sensing_time":        row.findtext("SENSING_TIME", ""),
         })
     return rows
-
-
-def _resolve_district(autonomous_district: str) -> str | None:
-    ad_lower = autonomous_district.lower()
-    for dong, gu in _DONG_TO_GU.items():
-        if dong in ad_lower:
-            return gu
-    return None
 
 
 def _fallback_noise_data() -> pd.DataFrame:
